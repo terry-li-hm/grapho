@@ -1,0 +1,18 @@
+[package]
+name = "grapho"
+version = "0.1.0"
+edition = "2021"
+description = "Personal memory system CLI — add, demote, promote, review entries across MEMORY.md and solutions KB"
+license = "MIT"
+repository = "https://github.com/terry-li-hm/grapho"
+keywords = ["cli", "memory", "knowledge", "personal", "notes"]
+categories = ["command-line-utilities"]
+
+[profile.release]
+opt-level     = "z"
+lto           = true
+codegen-units = 1
+panic         = "abort"
+strip         = true
+
+[dependencies]
