@@ -20,4 +20,12 @@ pub struct GraphoReport {
     pub remaining: i64,
     pub over_budget: bool,
     pub sections: Vec<String>,
+    pub top_hits: Vec<HitEntry>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct HitEntry {
+    pub key: String,
+    pub count: u32,
+    pub last: String,
 }

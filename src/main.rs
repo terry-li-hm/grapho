@@ -1,3 +1,4 @@
+mod hits;
 mod models;
 mod output;
 mod parse;
@@ -6,10 +7,11 @@ mod paths;
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
-use models::{GraphoReport, MemoryEntry, Section};
+use hits::{HitStore, entry_key, increment, load_hits, save_hits};
+use models::{GraphoReport, HitEntry, MemoryEntry, Section};
 use output::OutputFormat;
 use parse::{MemoryDoc, read_doc, write_doc_atomic, write_string_atomic};
-use paths::{resolve_memory_path, resolve_overflow_path, resolve_solutions_dir};
+use paths::{resolve_hits_path, resolve_memory_path, resolve_overflow_path, resolve_solutions_dir};
 use std::fs;
 use std::io::{self, IsTerminal, Write};
 use std::path::Path;
@@ -48,6 +50,8 @@ enum Command {
     Demote { search: String },
     /// Move an entry from memory-overflow.md to MEMORY.md
     Promote { search: String },
+    /// Record a hit for a MEMORY.md entry
+    Hit { search: String },
     /// Review overflow entries one by one
     Review,
     /// Scaffold a solution note under ~/docs/solutions
@@ -75,6 +79,7 @@ fn run() -> Result<()> {
         Command::Add => cmd_add(),
         Command::Demote { search } => cmd_demote(&search),
         Command::Promote { search } => cmd_promote(&search),
+        Command::Hit { search } => cmd_hit(&search),
         Command::Review => cmd_review(),
         Command::Solution { name } => cmd_solution(&name),
     }
@@ -82,11 +87,14 @@ fn run() -> Result<()> {
 
 fn cmd_status(format: OutputFormat) -> Result<()> {
     let memory_path = resolve_memory_path()?;
+    let hits_path = resolve_hits_path()?;
     let content = fs::read_to_string(&memory_path)
         .with_context(|| format!("failed to read {}", memory_path.display()))?;
     let doc = parse::parse_doc(&content)?;
     let line_count = content.lines().count();
     let remaining = BUDGET as i64 - line_count as i64;
+    let hit_store = load_hits(&hits_path)?;
+    let top_hits = top_hits(&hit_store);
 
     let report = GraphoReport {
         memory_path: memory_path.display().to_string(),
@@ -95,6 +103,7 @@ fn cmd_status(format: OutputFormat) -> Result<()> {
         remaining,
         over_budget: remaining < 0,
         sections: doc.sections.iter().map(|s| s.name.clone()).collect(),
+        top_hits,
     };
 
     println!("{}", output::render(&report, format)?);
@@ -164,16 +173,18 @@ fn cmd_add() -> Result<()> {
 fn cmd_demote(search: &str) -> Result<()> {
     let memory_path = resolve_memory_path()?;
     let overflow_path = resolve_overflow_path()?;
+    let hits_path = resolve_hits_path()?;
 
     let mut memory_doc = read_doc(&memory_path)?;
     let mut overflow_doc = read_or_init_overflow_doc(&overflow_path)?;
+    let hit_store = load_hits(&hits_path)?;
 
     let matches = find_matches(&memory_doc, search);
     if matches.is_empty() {
         bail!("no matches found for '{search}'");
     }
 
-    let choice = select_match("MEMORY.md matches", &matches)?;
+    let choice = select_match_with_hits("MEMORY.md matches", &matches, &hit_store)?;
     let selected = &matches[choice];
 
     let moved_entry = memory_doc.sections[selected.section_idx]
@@ -196,6 +207,38 @@ fn cmd_demote(search: &str) -> Result<()> {
         moved_entry
     );
 
+    Ok(())
+}
+
+fn cmd_hit(search: &str) -> Result<()> {
+    let memory_path = resolve_memory_path()?;
+    let hits_path = resolve_hits_path()?;
+    let memory_doc = read_doc(&memory_path)?;
+
+    let matches = find_matches(&memory_doc, search);
+    if matches.is_empty() {
+        bail!("no matches found for '{search}'");
+    }
+
+    let choice = if matches.len() == 1 {
+        0
+    } else if is_interactive() {
+        select_match("MEMORY.md matches", &matches)?
+    } else {
+        bail!("multiple matches; rerun interactively");
+    };
+
+    let selected = &matches[choice];
+    let key = entry_key(&selected.entry.text);
+    let mut store = load_hits(&hits_path)?;
+    increment(&mut store, &key);
+    let count = store.get(&key).map(|record| record.count).unwrap_or(0);
+    save_hits(&hits_path, &store)?;
+
+    println!(
+        "Hit recorded [{count}]: {}",
+        entry_preview(&selected.entry.text)
+    );
     Ok(())
 }
 
@@ -268,7 +311,10 @@ fn cmd_review() -> Result<()> {
 
     for entry in entries {
         println!();
-        println!("[{}] {} (age: {} days)", entry.section, entry.text, age_days);
+        println!(
+            "[{}] {} (age: {} days)",
+            entry.section, entry.text, age_days
+        );
 
         loop {
             let action = prompt("Action: [p]romote / [k]eep / [d]elete: ")?;
@@ -324,9 +370,7 @@ fn cmd_solution(name: &str) -> Result<()> {
         return Ok(());
     }
 
-    let body = format!(
-        "# {name}\n\n## Problem\n\n## Solution\n\n## Gotchas\n\n## References\n"
-    );
+    let body = format!("# {name}\n\n## Problem\n\n## Solution\n\n## Gotchas\n\n## References\n");
 
     write_string_atomic(&path, &body)?;
     println!("{}", path.display());
@@ -367,7 +411,10 @@ fn choose_option(title: &str, options: &[String]) -> Result<usize> {
             return Ok(number - 1);
         }
 
-        println!("Invalid selection. Enter a number between 1 and {}.", options.len());
+        println!(
+            "Invalid selection. Enter a number between 1 and {}.",
+            options.len()
+        );
     }
 }
 
@@ -469,6 +516,48 @@ fn select_match(title: &str, matches: &[EntryMatch]) -> Result<usize> {
         .map(|m| format!("[{}] {}", m.entry.section, m.entry.text))
         .collect();
     choose_option(title, &options)
+}
+
+fn select_match_with_hits(
+    title: &str,
+    matches: &[EntryMatch],
+    hit_store: &HitStore,
+) -> Result<usize> {
+    if matches.len() == 1 {
+        return Ok(0);
+    }
+
+    if !is_interactive() {
+        bail!("multiple matches found; rerun in an interactive terminal");
+    }
+
+    let options: Vec<String> = matches
+        .iter()
+        .map(|m| {
+            let key = entry_key(&m.entry.text);
+            let count = hit_store.get(&key).map(|record| record.count).unwrap_or(0);
+            format!("[{count} hits] [{}] {}", m.entry.section, m.entry.text)
+        })
+        .collect();
+    choose_option(title, &options)
+}
+
+fn top_hits(store: &HitStore) -> Vec<HitEntry> {
+    let mut entries: Vec<HitEntry> = store
+        .iter()
+        .map(|(key, record)| HitEntry {
+            key: key.clone(),
+            count: record.count,
+            last: record.last.clone(),
+        })
+        .collect();
+    entries.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.key.cmp(&b.key)));
+    entries.truncate(5);
+    entries
+}
+
+fn entry_preview(text: &str) -> String {
+    text.chars().take(60).collect()
 }
 
 fn all_entries(doc: &MemoryDoc) -> Vec<MemoryEntry> {

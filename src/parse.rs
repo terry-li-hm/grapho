@@ -11,8 +11,8 @@ pub struct MemoryDoc {
 }
 
 pub fn read_doc(path: &Path) -> Result<MemoryDoc> {
-    let content = fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let content =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     parse_doc(&content)
 }
 
@@ -50,7 +50,9 @@ pub fn parse_doc(content: &str) -> Result<MemoryDoc> {
         if let Some(section) = current.as_mut() {
             section.entries.push(line.to_string());
         } else {
-            return Err(anyhow!("parser state invalid: content exists without a section"));
+            return Err(anyhow!(
+                "parser state invalid: content exists without a section"
+            ));
         }
     }
 
@@ -153,6 +155,9 @@ mod tests {
 
         assert_eq!(rendered, original, "round-trip must preserve file identity");
         let reparsed = parse_doc(&rendered).expect("re-parse should succeed");
-        assert_eq!(parsed, reparsed, "parse -> render -> parse should be stable");
+        assert_eq!(
+            parsed, reparsed,
+            "parse -> render -> parse should be stable"
+        );
     }
 }

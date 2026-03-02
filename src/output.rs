@@ -35,7 +35,16 @@ fn render_human_tty(report: &GraphoReport) -> String {
         report.remaining.to_string().green().to_string()
     };
 
-    out.push_str(&format!("budget: {} (remaining: {})\n", report.budget, remaining));
+    out.push_str(&format!(
+        "budget: {} (remaining: {})\n",
+        report.budget, remaining
+    ));
+    if !report.top_hits.is_empty() {
+        out.push_str("Top hits:\n");
+        for hit in &report.top_hits {
+            out.push_str(&format!("  {}x  {}\n", hit.count, hit.key));
+        }
+    }
     out.push_str("sections:\n");
     for section in &report.sections {
         out.push_str(&format!("- {}\n", section));
@@ -52,6 +61,13 @@ fn render_human_markdown(report: &GraphoReport) -> String {
         "- budget: {}\n- remaining: {}\n- over budget: {}\n\n",
         report.budget, report.remaining, report.over_budget
     ));
+    if !report.top_hits.is_empty() {
+        out.push_str("## Top hits\n");
+        for hit in &report.top_hits {
+            out.push_str(&format!("- {}x  {}\n", hit.count, hit.key));
+        }
+        out.push('\n');
+    }
     out.push_str("## Sections\n");
     for section in &report.sections {
         out.push_str(&format!("- {}\n", section));

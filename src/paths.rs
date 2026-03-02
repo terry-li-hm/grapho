@@ -15,8 +15,17 @@ pub fn resolve_solutions_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("could not resolve home directory"))?;
     let dir = home.join("docs/solutions");
     if let Some(parent) = dir.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to ensure parent directory exists: {}", parent.display()))?;
+        std::fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to ensure parent directory exists: {}",
+                parent.display()
+            )
+        })?;
     }
     Ok(dir)
+}
+
+pub fn resolve_hits_path() -> Result<PathBuf> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("could not resolve home directory"))?;
+    Ok(home.join(".grapho/hits.json"))
 }
