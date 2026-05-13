@@ -1,9 +1,17 @@
 use anyhow::{Context, Result, anyhow};
 use std::path::PathBuf;
 
+fn project_slug(home: &std::path::Path) -> Result<String> {
+    let s = home
+        .to_str()
+        .ok_or_else(|| anyhow!("home path not utf-8"))?;
+    Ok(s.replace('/', "-"))
+}
+
 pub fn resolve_memory_path() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("could not resolve home directory"))?;
-    Ok(home.join(".claude/projects/-Users-terry/memory/MEMORY.md"))
+    let slug = project_slug(&home)?;
+    Ok(home.join(format!(".claude/projects/{}/memory/MEMORY.md", slug)))
 }
 
 pub fn resolve_overflow_path() -> Result<PathBuf> {
