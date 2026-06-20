@@ -36,7 +36,15 @@ impl std::fmt::Display for OverBudgetError {
 impl std::error::Error for OverBudgetError {}
 
 #[derive(Parser)]
-#[command(name = "grapho", version, about = "Manage personal memory files")]
+#[command(
+    name = "grapho",
+    version,
+    about = "Manage personal memory files",
+    long_about = "Manage personal memory files.\n\n\
+        Targets default to the .claude memory set. Override per-invocation with\n\
+        GRAPHO_MEMORY_PATH and GRAPHO_OVERFLOW_PATH (e.g. to operate on the\n\
+        epigenome MEMORY.md): GRAPHO_MEMORY_PATH=~/epigenome/marks/MEMORY.md grapho status"
+)]
 struct Cli {
     #[arg(long, value_enum, default_value_t = OutputFormat::Human, global = true)]
     format: OutputFormat,
@@ -140,10 +148,7 @@ fn cmd_add() -> Result<()> {
         if name.trim().is_empty() {
             bail!("section name cannot be empty");
         }
-        doc.sections.push(Section {
-            name: name.trim().to_string(),
-            entries: Vec::new(),
-        });
+        doc.sections.push(Section::new(name.trim()));
         0
     } else {
         let mut options: Vec<String> = doc.sections.iter().map(|s| s.name.clone()).collect();
@@ -155,10 +160,7 @@ fn cmd_add() -> Result<()> {
             if name.trim().is_empty() {
                 bail!("section name cannot be empty");
             }
-            doc.sections.push(Section {
-                name: name.trim().to_string(),
-                entries: Vec::new(),
-            });
+            doc.sections.push(Section::new(name.trim()));
             doc.sections.len() - 1
         } else {
             selected
@@ -485,10 +487,7 @@ fn select_target_section(memory_doc: &mut MemoryDoc) -> Result<usize> {
             bail!("section name cannot be empty");
         }
 
-        memory_doc.sections.push(Section {
-            name: name.trim().to_string(),
-            entries: Vec::new(),
-        });
+        memory_doc.sections.push(Section::new(name.trim()));
 
         return Ok(0);
     }
@@ -518,10 +517,7 @@ fn ensure_section(doc: &mut MemoryDoc, name: &str) -> usize {
         return index;
     }
 
-    doc.sections.push(Section {
-        name: name.to_string(),
-        entries: Vec::new(),
-    });
+    doc.sections.push(Section::new(name));
     doc.sections.len() - 1
 }
 
