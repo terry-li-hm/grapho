@@ -1,6 +1,6 @@
 [package]
 name = "grapho"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "Personal memory system CLI — add, demote, promote, review entries across MEMORY.md and solutions KB"
 license = "MIT"
