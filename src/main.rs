@@ -1,5 +1,6 @@
 mod hits;
 mod models;
+mod orphans;
 mod output;
 mod parse;
 mod paths;
@@ -8,10 +9,14 @@ use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use hits::{HitStore, entry_key, increment, load_hits, save_hits};
-use models::{GraphoReport, HitEntry, MemoryEntry, Section};
+use models::{GraphoReport, HitEntry, MemoryEntry, Orphan, OrphansReport, Section};
+use orphans::{find_orphan_candidates, older_than};
 use output::OutputFormat;
 use parse::{MemoryDoc, read_doc, write_doc_atomic, write_string_atomic};
-use paths::{resolve_hits_path, resolve_memory_path, resolve_overflow_path, resolve_solutions_dir};
+use paths::{
+    resolve_hits_path, resolve_marks_dir, resolve_memory_dir, resolve_memory_path,
+    resolve_overflow_path, resolve_solutions_dir,
+};
 use std::fs;
 use std::io::{self, IsTerminal, Write};
 use std::path::Path;
@@ -56,6 +61,12 @@ enum Command {
     Review,
     /// Scaffold a solution note under ~/docs/solutions
     Solution { name: String },
+    /// List CC-auto-memory findings with no authoritative epigenome/marks counterpart
+    Orphans {
+        /// Only list findings older than this many days (by mtime)
+        #[arg(long, default_value_t = 7)]
+        min_age_days: i64,
+    },
 }
 
 fn main() -> ExitCode {
@@ -82,6 +93,7 @@ fn run() -> Result<()> {
         Command::Hit { search } => cmd_hit(&search),
         Command::Review => cmd_review(),
         Command::Solution { name } => cmd_solution(&name),
+        Command::Orphans { min_age_days } => cmd_orphans(cli.format, min_age_days),
     }
 }
 
@@ -374,6 +386,46 @@ fn cmd_solution(name: &str) -> Result<()> {
 
     write_string_atomic(&path, &body)?;
     println!("{}", path.display());
+    Ok(())
+}
+
+fn cmd_orphans(format: OutputFormat, min_age_days: i64) -> Result<()> {
+    let memory_dir = resolve_memory_dir()?;
+    let marks_dir = resolve_marks_dir()?;
+    let candidates = find_orphan_candidates(&memory_dir, &marks_dir)?;
+    let now = Utc::now().timestamp();
+
+    let mut orphans = Vec::new();
+    for cand in candidates {
+        let modified = fs::metadata(&cand.path)
+            .and_then(|m| m.modified())
+            .with_context(|| format!("failed to read mtime for {}", cand.path.display()))?;
+        let mtime_unix = chrono::DateTime::<Utc>::from(modified).timestamp();
+        if !older_than(mtime_unix, now, min_age_days) {
+            continue;
+        }
+        orphans.push(Orphan {
+            name: cand.name,
+            path: cand.path.display().to_string(),
+            age_days: (now - mtime_unix) / 86_400,
+            reason: "no epigenome counterpart (basename or content)".to_string(),
+        });
+    }
+    orphans.sort_by(|a, b| {
+        b.age_days
+            .cmp(&a.age_days)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    let report = OrphansReport {
+        memory_dir: memory_dir.display().to_string(),
+        marks_dir: marks_dir.display().to_string(),
+        min_age_days,
+        count: orphans.len(),
+        orphans,
+    };
+
+    println!("{}", output::render_orphans(&report, format)?);
     Ok(())
 }
 

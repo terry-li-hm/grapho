@@ -1,4 +1,4 @@
-use crate::models::GraphoReport;
+use crate::models::{GraphoReport, OrphansReport};
 use anyhow::Result;
 use clap::ValueEnum;
 use owo_colors::OwoColorize;
@@ -71,6 +71,53 @@ fn render_human_markdown(report: &GraphoReport) -> String {
     out.push_str("## Sections\n");
     for section in &report.sections {
         out.push_str(&format!("- {}\n", section));
+    }
+    out
+}
+
+pub fn render_orphans(report: &OrphansReport, format: OutputFormat) -> Result<String> {
+    match format {
+        OutputFormat::Json => Ok(serde_json::to_string_pretty(report)?),
+        OutputFormat::Human => {
+            if io::stdout().is_terminal() {
+                Ok(render_orphans_human_tty(report))
+            } else {
+                Ok(render_orphans_human_markdown(report))
+            }
+        }
+    }
+}
+
+fn render_orphans_human_tty(report: &OrphansReport) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("{}\n", "grapho orphans".bold()));
+    out.push_str(&format!("memory: {}\n", report.memory_dir));
+    out.push_str(&format!("marks: {}\n", report.marks_dir));
+    out.push_str(&format!("min age (days): {}\n", report.min_age_days));
+
+    let count_str = if report.count > 0 {
+        report.count.to_string().red().to_string()
+    } else {
+        report.count.to_string().green().to_string()
+    };
+    out.push_str(&format!("orphans: {}\n", count_str));
+
+    for o in &report.orphans {
+        out.push_str(&format!("  {}d  {}\n", o.age_days, o.name));
+    }
+    out
+}
+
+fn render_orphans_human_markdown(report: &OrphansReport) -> String {
+    let mut out = String::new();
+    out.push_str("# grapho orphans\n\n");
+    out.push_str(&format!("- memory: {}\n", report.memory_dir));
+    out.push_str(&format!("- marks: {}\n", report.marks_dir));
+    out.push_str(&format!("- min age (days): {}\n", report.min_age_days));
+    out.push_str(&format!("- orphans: {}\n\n", report.count));
+
+    for o in &report.orphans {
+        out.push_str(&format!("- {}d  {}\n", o.age_days, o.name));
     }
     out
 }

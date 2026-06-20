@@ -29,3 +29,20 @@ pub struct HitEntry {
     pub count: u32,
     pub last: String,
 }
+
+#[derive(Debug, Serialize, Clone)]
+pub struct Orphan {
+    pub name: String,
+    pub path: String,
+    pub age_days: i64,
+    pub reason: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OrphansReport {
+    pub memory_dir: String,
+    pub marks_dir: String,
+    pub min_age_days: i64,
+    pub count: usize,
+    pub orphans: Vec<Orphan>,
+}

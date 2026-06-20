@@ -14,6 +14,18 @@ pub fn resolve_memory_path() -> Result<PathBuf> {
     Ok(home.join(format!(".claude/projects/{}/memory/MEMORY.md", slug)))
 }
 
+pub fn resolve_memory_dir() -> Result<PathBuf> {
+    let mem = resolve_memory_path()?;
+    mem.parent()
+        .map(|p| p.to_path_buf())
+        .ok_or_else(|| anyhow!("memory path has no parent dir"))
+}
+
+pub fn resolve_marks_dir() -> Result<PathBuf> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("could not resolve home directory"))?;
+    Ok(home.join("epigenome/marks"))
+}
+
 pub fn resolve_overflow_path() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("could not resolve home directory"))?;
     Ok(home.join("docs/solutions/memory-overflow.md"))
